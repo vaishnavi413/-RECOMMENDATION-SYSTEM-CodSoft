@@ -1,0 +1,87 @@
+import pandas as pd
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Load the data
+ratings = pd.read_csv('ratings.csv')  # UserID, MovieID, Rating
+movies = pd.read_csv('movies.csv')  # MovieID, Title
+
+# Validate data
+print("Ratings Data Head:")
+print(ratings.head())
+print("\nMovies Data Head:")
+print(movies.head())
+
+# Filter the dataset to a smaller subset for testing purposes
+# Example: Use only the first 1000 users and the first 1000 movies
+filtered_ratings = ratings[ratings['userId'] <= 1000]
+filtered_ratings = filtered_ratings[filtered_ratings['movieId'] <= 1000]
+
+# Ensure there are no missing values in 'userId', 'movieId', and 'rating' columns
+filtered_ratings = filtered_ratings.dropna(subset=['userId', 'movieId', 'rating'])
+
+# Convert 'userId' and 'movieId' to integer if they are not already
+filtered_ratings['userId'] = filtered_ratings['userId'].astype(int)
+filtered_ratings['movieId'] = filtered_ratings['movieId'].astype(int)
+
+# Create the user-item interaction matrix
+try:
+    user_movie_matrix = filtered_ratings.pivot(index='userId', columns='movieId', values='rating').fillna(0)
+except ValueError as e:
+    print("Error creating the user-item interaction matrix:", e)
+    print("Check if there are any inconsistencies in your data.")
+
+# Compute cosine similarity between users
+user_similarity = cosine_similarity(user_movie_matrix)
+user_similarity_df = pd.DataFrame(user_similarity, index=user_movie_matrix.index, columns=user_movie_matrix.index)
+
+# Function to recommend movies
+def recommend_movies(user_id, num_recommendations=5):
+    if user_id not in user_similarity_df.index:
+        print(f"User ID {user_id} not found in the dataset.")
+        return []
+    
+    similar_users = user_similarity_df[user_id].sort_values(ascending=False).index[1:]
+    similar_users_ratings = user_movie_matrix.loc[similar_users]
+    recommended_movies = similar_users_ratings.mean(axis=0).sort_values(ascending=False).index[:num_recommendations]
+    
+    return movies[movies['movieId'].isin(recommended_movies)]['title'].values
+
+# Example usage
+user_id = 1  # Change to a valid user ID in your dataset
+recommendations = recommend_movies(user_id)
+print(f"Recommendations for User {user_id}:")
+print(recommendations)
+
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+# Load the data
+movies = pd.read_csv('movies.csv')  # MovieID, Title, Genres
+ratings = pd.read_csv('ratings.csv')  # UserID, MovieID, Rating
+
+# Create the item profile
+tfidf = TfidfVectorizer(stop_words='english')
+movies['genres'] = movies['genres'].fillna('')
+tfidf_matrix = tfidf.fit_transform(movies['genres'])
+
+# Function to create user profile
+def create_user_profile(user_id):
+    user_ratings = ratings[ratings['userId'] == user_id]
+    user_rated_movies = movies[movies['movieId'].isin(user_ratings['movieId'])]
+    user_profile = tfidf.transform(user_rated_movies['genres'])
+    user_profile_weights = user_ratings['rating'].values.reshape(-1, 1)
+    user_profile = user_profile.multiply(user_profile_weights).sum(axis=0)
+    return user_profile
+
+# Function to recommend movies
+def recommend_movies_content(user_id, num_recommendations=5):
+    user_profile = create_user_profile(user_id)
+    similarities = cosine_similarity(user_profile, tfidf_matrix)
+    similar_indices = similarities.argsort().flatten()[-num_recommendations:]
+    return movies.iloc[similar_indices]['title'].values
+
+# Example usage
+user_id = 1  # Change to a valid user ID in your dataset
+recommendations = recommend_movies_content(user_id)
+print(f"Recommendations for User {user_id}:")
+print(recommendations)
